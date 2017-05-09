@@ -1,0 +1,139 @@
+#!/bin/sh
+# 此腳本路徑：/etc/storage/serverchan_script.sh
+# 自訂設置 - 腳本 - 自訂 Crontab 定時任務配置，可自訂啟動時間
+source /etc/storage/script/init.sh
+export PATH='/opt/usr/sbin:/opt/usr/bin:/opt/sbin:/opt/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin'
+export LD_LIBRARY_PATH=/lib:/opt/lib
+serverchan_enable=`nvram get serverchan_enable`
+serverchan_enable=${serverchan_enable:-"0"}
+serverchan_sckey=`nvram get serverchan_sckey`
+serverchan_notify_1=`nvram get serverchan_notify_1`
+serverchan_notify_2=`nvram get serverchan_notify_2`
+serverchan_notify_3=`nvram get serverchan_notify_3`
+serverchan_notify_4=`nvram get serverchan_notify_4`
+mkdir -p /tmp/var
+resub=1
+# 獲得外網位址
+    arIpAddress() {
+    curltest=`which curl`
+    if [ -z "$curltest" ] || [ ! -s "`which curl`" ] ; then
+        wget --no-check-certificate --quiet --output-document=- "http://members.3322.org/dyndns/getip"
+        #wget --no-check-certificate --quiet --output-document=- "1212.ip138.com/ic.asp" | grep -E -o '([0-9]+\.){3}[0-9]+'
+        #wget --no-check-certificate --quiet --output-document=- "ip.6655.com/ip.aspx"
+        #wget --no-check-certificate --quiet --output-document=- "ip.3322.net"
+    else
+        curl -k -s "http://members.3322.org/dyndns/getip"
+        #curl -k -s 1212.ip138.com/ic.asp | grep -E -o '([0-9]+\.){3}[0-9]+'
+        #curl -k -s ip.6655.com/ip.aspx
+        #curl -k -s ip.3322.net
+    fi
+    }
+# 讀取最近外網位址
+    lastIPAddress() {
+        local inter="/etc/storage/lastIPAddress"
+        cat $inter
+    }
+
+while [ "$serverchan_enable" = "1" ];
+do
+serverchan_enable=`nvram get serverchan_enable`
+serverchan_enable=${serverchan_enable:-"0"}
+serverchan_sckey=`nvram get serverchan_sckey`
+serverchan_notify_1=`nvram get serverchan_notify_1`
+serverchan_notify_2=`nvram get serverchan_notify_2`
+serverchan_notify_3=`nvram get serverchan_notify_3`
+serverchan_notify_4=`nvram get serverchan_notify_4`
+curltest=`which curl`
+if [ -z "$curltest" ] ; then
+    wget --continue --no-check-certificate -s -q -T 10 http://www.163.com
+    [ "$?" == "0" ] && check=200 || check=404
+else
+    check=`curl -k -s -w "%{http_code}" "http://www.163.com" -o /dev/null`
+fi
+if [ "$check" == "200" ] ; then
+echo "online"
+if [ "$serverchan_notify_1" = "1" ] ; then
+    local hostIP=$(arIpAddress)
+    local lastIP=$(lastIPAddress)
+    if [ "$lastIP" != "$hostIP" ] && [ ! -z "$hostIP" ] ; then
+    sleep 60
+        local hostIP=$(arIpAddress)
+        local lastIP=$(lastIPAddress)
+    fi
+    if [ "$lastIP" != "$hostIP" ] && [ ! -z "$hostIP" ] ; then
+        logger -t "【網際網路IP位址變動】" "目前 IP: ${hostIP}"
+        logger -t "【網際網路IP位址變動】" "上次 IP: ${lastIP}"
+        curl -s "http://sc.ftqq.com/$serverchan_sckey.send?text=【"`nvram get computer_name`"】網際網路IP變動" -d "&desp=${hostIP}" &
+        logger -t "【WeChat推送】" "網際網路位址變動:${hostIP}"
+        echo -n $hostIP > /etc/storage/lastIPAddress
+    fi
+fi
+if [ "$serverchan_notify_2" = "1" ] ; then
+    # 獲取接入裝置名稱
+    touch /tmp/var/newhostname.txt
+    echo "接入裝置名稱" > /tmp/var/newhostname.txt
+    #cat /tmp/syslog.log | grep 'Found new hostname' | awk '{print $7" "$8}' >> /tmp/var/newhostname.txt
+    cat /tmp/static_ip.inf | grep -v "^$" | awk -F "," '{ if ( $6 == 0 ) print "【網內IP位址："$1"，MAC Address："$2"，裝置名稱："$3"】  "}' >> /tmp/var/newhostname.txt
+    # 讀取以往接入裝置名稱
+    touch /etc/storage/hostname.txt
+    [ ! -s /etc/storage/hostname.txt ] && echo "接入裝置名稱" > /etc/storage/hostname.txt
+    # 獲取新接入裝置名稱
+    awk 'NR==FNR{a[$0]++} NR>FNR&&a[$0]' /etc/storage/hostname.txt /tmp/var/newhostname.txt > /tmp/var/newhostname相同行.txt
+    awk 'NR==FNR{a[$0]++} NR>FNR&&!a[$0]' /tmp/var/newhostname相同行.txt /tmp/var/newhostname.txt > /tmp/var/newhostname不重複.txt
+    if [ -s "/tmp/var/newhostname不重複.txt" ] ; then
+        content=`cat /tmp/var/newhostname不重複.txt | grep -v "^$"`
+        curl -s "http://sc.ftqq.com/$serverchan_sckey.send?text=新裝置已連線到【"`nvram get computer_name`"】" -d "&desp=${content}" &
+        logger -t "【WeChat推送】" "新裝置加入:${content}"
+        cat /tmp/var/newhostname不重複.txt | grep -v "^$" >> /etc/storage/hostname.txt
+    fi
+fi
+if [ "$serverchan_notify_4" = "1" ] ; then
+    # 裝置上、已離線提醒
+    # 獲取接入裝置名稱
+    touch /tmp/var/newhostname.txt
+    echo "接入裝置名稱" > /tmp/var/newhostname.txt
+    #cat /tmp/syslog.log | grep 'Found new hostname' | awk '{print $7" "$8}' >> /tmp/var/newhostname.txt
+    cat /tmp/static_ip.inf | grep -v "^$" | awk -F "," '{ if ( $6 == 0 ) print "【網內IP位址："$1"，MAC Address："$2"，裝置名稱："$3"】  "}' >> /tmp/var/newhostname.txt
+    # 讀取以往上線裝置名稱
+    touch /etc/storage/hostname_上線.txt
+    [ ! -s /etc/storage/hostname_上線.txt ] && echo "接入裝置名稱" > /etc/storage/hostname_上線.txt
+    # 上線
+    awk 'NR==FNR{a[$0]++} NR>FNR&&a[$0]' /etc/storage/hostname_上線.txt /tmp/var/newhostname.txt > /tmp/var/newhostname相同行_上線.txt
+    awk 'NR==FNR{a[$0]++} NR>FNR&&!a[$0]' /tmp/var/newhostname相同行_上線.txt /tmp/var/newhostname.txt > /tmp/var/newhostname不重複_上線.txt
+    if [ -s "/tmp/var/newhostname不重複_上線.txt" ] ; then
+        content=`cat /tmp/var/newhostname不重複_上線.txt | grep -v "^$"`
+        curl -s "http://sc.ftqq.com/$serverchan_sckey.send?text=裝置已連線【"`nvram get computer_name`"】" -d "&desp=${content}" &
+        logger -t "【WeChat推送】" "裝置【已連線】:${content}"
+        cat /tmp/var/newhostname不重複_上線.txt | grep -v "^$" >> /etc/storage/hostname_上線.txt
+    fi
+    # 已離線
+    awk 'NR==FNR{a[$0]++} NR>FNR&&!a[$0]' /tmp/var/newhostname.txt /etc/storage/hostname_上線.txt > /tmp/var/newhostname不重複_已離線.txt
+    if [ -s "/tmp/var/newhostname不重複_已離線.txt" ] ; then
+        content=`cat /tmp/var/newhostname不重複_已離線.txt | grep -v "^$"`
+        curl -s "http://sc.ftqq.com/$serverchan_sckey.send?text=裝置已離開【"`nvram get computer_name`"】" -d "&desp=${content}" &
+        logger -t "【WeChat推送】" "裝置【已離線】:${content}"
+        cat /tmp/var/newhostname.txt | grep -v "^$" > /etc/storage/hostname_上線.txt
+    fi
+fi
+if [ "$serverchan_notify_3" = "1" ] && [ "$resub" = "1" ] ; then
+    # ROM更新提醒
+    [ ! -f /tmp/var/osub ] && echo -n `nvram get firmver_sub` > /tmp/var/osub
+    rm -f /tmp/var/nsub
+    wgetcurl.sh "/tmp/var/nsub" "$hiboyfile/osub" "$hiboyfile2/osub"
+    if [ $(cat /tmp/var/osub) != $(cat /tmp/var/nsub) ] && [ -f /tmp/var/nsub ] ; then
+        echo -n `nvram get firmver_sub` > /tmp/var/osub
+        content="新的ROM： `cat /tmp/var/nsub | grep -v "^$"` ，目前ROM： `cat /tmp/var/osub | grep -v "^$"` "
+        logger -t "【WeChat推送】" "ROM 新的更新：${content}"
+        curl -s "http://sc.ftqq.com/$serverchan_sckey.send?text=【"`nvram get computer_name`"】ROM更新提醒" -d "&desp=${content}" &
+        echo -n `cat /tmp/var/nsub | grep -v "^$"` > /tmp/var/osub
+    fi
+fi
+    resub=`expr $resub + 1`
+    [ "$resub" -gt 360 ] && resub=1
+else
+echo "Internet down 網際網路已斷開"
+resub=1
+fi
+sleep 60
+continue
+done
